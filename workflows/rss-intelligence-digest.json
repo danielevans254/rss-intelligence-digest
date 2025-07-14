@@ -1,0 +1,530 @@
+{
+  "id": "a60af3aa-eccd-47c1-9976-a0768752d571",
+  "name": "05 - RSS Intelligence Digest",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## RSS intelligence digest\n\nDisabled schedule or webhook → public RSS feeds → keyword/time-window filtering → digest → optional Slack.\n\nThe test branch is fully deterministic and never calls the internet.",
+        "width": 520,
+        "height": 300,
+        "color": 4
+      },
+      "id": "39db3121-4ba7-44d8-be60-759692dfc525",
+      "name": "RSS Architecture",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -760,
+        -440
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "rss-intelligence",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "1ac6f6eb-6182-44b3-98da-8bacc815df20",
+      "name": "RSS Test Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -720,
+        -80
+      ],
+      "webhookId": "9da009a7-df7c-4ebc-94ba-e38d85929146"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "days",
+              "daysInterval": 1,
+              "triggerAtHour": 8
+            }
+          ]
+        }
+      },
+      "id": "e24bba32-6db7-46d6-b195-b636244f2aba",
+      "name": "Daily RSS Schedule",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -720,
+        160
+      ],
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw=$json.body ?? $json;\nconst envFeeds=String($env.RSS_FEED_URLS || 'https://hnrss.org/frontpage').split(',').map(v=>v.trim()).filter(Boolean);\nconst feedUrls=Array.isArray(raw.feed_urls)?raw.feed_urls.map(String):envFeeds;\nif(!feedUrls.length) throw new Error('At least one feed URL is required');\nreturn [{json:{test_mode:raw.test_mode===true,run_id:String(raw.run_id || ('rss-'+Date.now())),feed_urls:feedUrls,filters:{keywords:Array.isArray(raw.filters?.keywords)?raw.filters.keywords:[],exclude_keywords:Array.isArray(raw.filters?.exclude_keywords)?raw.filters.exclude_keywords:[],max_items:Number(raw.filters?.max_items || 10),lookback_hours:Number(raw.filters?.lookback_hours || 168),now:raw.filters?.now || new Date().toISOString()},mock_items:Array.isArray(raw.mock_items)?raw.mock_items:[]}}];"
+      },
+      "id": "95f13f90-3cc6-4460-bde3-0ab29624cd79",
+      "name": "Normalize RSS Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -440,
+        20
+      ],
+      "notesInFlow": true,
+      "notes": "Normalizes feeds and filtering controls. Treat feed content as untrusted text if an LLM enrichment step is added later."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "97c5eedc-4ebc-4f07-98b0-3c73ff537f41",
+              "leftValue": "={{ $json.test_mode }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "c36195c1-4ee7-4186-807b-4042bcb48fd4",
+      "name": "RSS Test Mode?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -200,
+        20
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const d=$input.first().json; return d.mock_items.map(item=>({json:item}));"
+      },
+      "id": "22cecd22-4d4b-452d-bf3b-ff87f2f294bd",
+      "name": "Use Mock RSS Items",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        40,
+        -140
+      ],
+      "notesInFlow": true,
+      "notes": "Credential-free deterministic fixture path."
+    },
+    {
+      "parameters": {
+        "jsCode": "const d=$input.first().json; return d.feed_urls.map(feed_url=>({json:{feed_url}}));"
+      },
+      "id": "6747e579-c7fe-4a62-be30-2daeddc089c6",
+      "name": "Expand Feed URLs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        40,
+        120
+      ],
+      "notesInFlow": false
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.feed_url }}",
+        "options": {}
+      },
+      "id": "cf7d23e9-96a4-412e-80e3-0342714d24d7",
+      "name": "Read RSS Feeds",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1.2,
+      "position": [
+        300,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const select = function selectRssItems(items, options = {}) {\n  const rows = Array.isArray(items) ? items : [];\n  const maxItems = Math.max(1, Math.min(Number(options.max_items || 10), 50));\n  const keywords = (options.keywords || []).map((v) => String(v).trim().toLowerCase()).filter(Boolean);\n  const excluded = (options.exclude_keywords || []).map((v) => String(v).trim().toLowerCase()).filter(Boolean);\n  const now = new Date(options.now || Date.now());\n  const lookbackHours = Math.max(1, Math.min(Number(options.lookback_hours || 168), 24 * 90));\n  const cutoff = now.getTime() - (lookbackHours * 60 * 60 * 1000);\n  const seen = new Set();\n  const selected = [];\n\n  for (const item of rows) {\n    const title = String(item?.title || '').trim();\n    const link = String(item?.link || item?.url || '').trim();\n    const summary = String(item?.contentSnippet || item?.content || item?.description || '').replace(/<[^>]+>/g, ' ').replace(/\\s+/g, ' ').trim();\n    const publishedAt = item?.isoDate || item?.pubDate || item?.published_at || item?.date || null;\n    const publishedTime = publishedAt ? new Date(publishedAt).getTime() : Number.NaN;\n    const haystack = `${title}\\n${summary}`.toLowerCase();\n    if (!title || !link) continue;\n    if (Number.isFinite(publishedTime) && publishedTime < cutoff) continue;\n    if (keywords.length && !keywords.some((keyword) => haystack.includes(keyword))) continue;\n    if (excluded.some((keyword) => haystack.includes(keyword))) continue;\n    const id = String(item?.guid || item?.id || link || title);\n    if (seen.has(id)) continue;\n    seen.add(id);\n    selected.push({\n      id,\n      title,\n      link,\n      summary: summary.slice(0, 1000),\n      source: String(item?.source || item?.feedTitle || item?.creator || 'RSS'),\n      published_at: publishedAt ? new Date(publishedAt).toISOString() : null,\n    });\n  }\n\n  return selected\n    .sort((a, b) => new Date(b.published_at || 0).getTime() - new Date(a.published_at || 0).getTime())\n    .slice(0, maxItems);\n};\nconst req = $('Normalize RSS Request').first().json;\nconst selected = select($input.all().map(i => i.json), req.filters);\nreturn [{json:{...req,items:selected,item_count:selected.length}}];"
+      },
+      "id": "378613e8-1fff-477b-a4bf-fa280e67a057",
+      "name": "Select RSS Items",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        560,
+        0
+      ],
+      "notesInFlow": true,
+      "notes": "Deduplicates, filters by time and keyword, strips HTML, bounds text, and caps output."
+    },
+    {
+      "parameters": {
+        "jsCode": "const d=$input.first().json; const lines=d.items.map((i,n)=>(n+1)+'. '+i.title+'\\n'+i.link); const text='RSS intelligence digest — '+d.item_count+' item(s)\\n\\n'+(lines.join('\\n\\n') || 'No matching items.'); return [{json:{...d,notification_text:text}}];"
+      },
+      "id": "2ec881e7-8bd7-4408-847c-6cd3340173c1",
+      "name": "Build RSS Digest",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        820,
+        0
+      ],
+      "notesInFlow": false
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "92d96fbf-e1fa-421d-9f39-e6f52a65f972",
+              "leftValue": "={{ $json.test_mode }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "41ea45c3-2a75-498a-84be-021fc8a9bb4d",
+      "name": "RSS Notification Test Mode?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1060,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.all().map(i=>({json:{...i.json,notification:{system:'slack',status:'mocked'}}}));"
+      },
+      "id": "134534fa-c881-4a29-8bf9-c1597ad506d3",
+      "name": "Mock RSS Notification",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1300,
+        -160
+      ],
+      "notesInFlow": false
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "047c00f4-842d-4b29-9a66-90fb16124205",
+              "leftValue": "={{ Boolean($env.SLACK_WEBHOOK_URL && !$env.SLACK_WEBHOOK_URL.includes('CHANGE_ME')) && $json.item_count > 0 }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "6b9017e9-4398-4c63-b757-ed7d8a55de5d",
+      "name": "Send RSS Slack?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1300,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SLACK_WEBHOOK_URL }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ {text:$json.notification_text} }}",
+        "options": {}
+      },
+      "id": "95a275e4-0fe5-4a18-b4a6-ecd4ef9f69bb",
+      "name": "Send RSS Slack Digest",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1540,
+        20
+      ],
+      "retryOnFail": false,
+      "maxTries": 3,
+      "waitBetweenTries": 1000,
+      "notesInFlow": true,
+      "notes": "Optional Slack free-plan adapter. Use an n8n Slack credential in production."
+    },
+    {
+      "parameters": {
+        "jsCode": "const d=$('Build RSS Digest').first().json; return [{json:{...d,notification:{system:'slack',status:'sent'}}}];"
+      },
+      "id": "16e667a7-4769-45f1-b403-d3324ffcf10f",
+      "name": "Mark RSS Slack Sent",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1780,
+        20
+      ],
+      "notesInFlow": false
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.all().map(i=>({json:{...i.json,notification:{system:'slack',status:'skipped',reason:i.json.item_count?'not_configured':'no_matches'}}}));"
+      },
+      "id": "786a096b-ab7a-4ea1-919e-ca78fab3d678",
+      "name": "Skip RSS Notification",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1540,
+        160
+      ],
+      "notesInFlow": false
+    },
+    {
+      "parameters": {
+        "jsCode": "const d=$input.first().json; return [{json:{status:'completed',run_id:d.run_id,test_mode:d.test_mode,item_count:d.item_count,items:d.items,notification:d.notification,completed_at:new Date().toISOString()}}];"
+      },
+      "id": "ea5fe1ee-dfd0-4a91-a15f-dd6b84d48430",
+      "name": "RSS Final Receipt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2020,
+        0
+      ],
+      "notesInFlow": false
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "RSS Test Webhook": {
+      "main": [
+        [
+          {
+            "node": "Normalize RSS Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Daily RSS Schedule": {
+      "main": [
+        [
+          {
+            "node": "Normalize RSS Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize RSS Request": {
+      "main": [
+        [
+          {
+            "node": "RSS Test Mode?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RSS Test Mode?": {
+      "main": [
+        [
+          {
+            "node": "Use Mock RSS Items",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Expand Feed URLs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Use Mock RSS Items": {
+      "main": [
+        [
+          {
+            "node": "Select RSS Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Expand Feed URLs": {
+      "main": [
+        [
+          {
+            "node": "Read RSS Feeds",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read RSS Feeds": {
+      "main": [
+        [
+          {
+            "node": "Select RSS Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Select RSS Items": {
+      "main": [
+        [
+          {
+            "node": "Build RSS Digest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build RSS Digest": {
+      "main": [
+        [
+          {
+            "node": "RSS Notification Test Mode?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RSS Notification Test Mode?": {
+      "main": [
+        [
+          {
+            "node": "Mock RSS Notification",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send RSS Slack?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send RSS Slack?": {
+      "main": [
+        [
+          {
+            "node": "Send RSS Slack Digest",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Skip RSS Notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send RSS Slack Digest": {
+      "main": [
+        [
+          {
+            "node": "Mark RSS Slack Sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mock RSS Notification": {
+      "main": [
+        [
+          {
+            "node": "RSS Final Receipt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark RSS Slack Sent": {
+      "main": [
+        [
+          {
+            "node": "RSS Final Receipt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Skip RSS Notification": {
+      "main": [
+        [
+          {
+            "node": "RSS Final Receipt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "versionId": "2035068b-5af2-45d2-9a33-d552168e9c8d",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": [],
+  "description": "Collect public RSS items, apply deterministic intelligence filters, and send an optional Slack digest."
+}

@@ -1,0 +1,52 @@
+{
+  "test_mode": true,
+  "run_id": "rss-demo-001",
+  "feed_urls": [
+    "https://hnrss.org/frontpage"
+  ],
+  "filters": {
+    "keywords": ["n8n", "automation"],
+    "exclude_keywords": ["sponsored"],
+    "max_items": 5,
+    "lookback_hours": 168,
+    "now": "2026-09-29T00:00:00Z"
+  },
+  "mock_items": [
+    {
+      "guid": "rss-001",
+      "title": "n8n adds safer workflow execution controls",
+      "link": "https://example.test/n8n-controls",
+      "description": "New controls help teams operate automation workflows safely.",
+      "pubDate": "2026-09-28T12:00:00Z",
+      "source": "Automation Weekly"
+    },
+    {
+      "guid": "rss-002",
+      "title": "Workflow automation security checklist",
+      "link": "https://example.test/automation-security",
+      "description": "A practical checklist for secrets, retries, and audit logs.",
+      "pubDate": "2026-09-27T08:30:00Z",
+      "source": "Engineering Notes"
+    },
+    {
+      "guid": "rss-003",
+      "title": "Sponsored automation platform announcement",
+      "link": "https://example.test/sponsored",
+      "description": "Sponsored post about workflow automation.",
+      "pubDate": "2026-09-28T18:00:00Z",
+      "source": "Example Ads"
+    },
+    {
+      "guid": "rss-004",
+      "title": "Unrelated cooking article",
+      "link": "https://example.test/cooking",
+      "description": "A recipe without relevant keywords.",
+      "pubDate": "2026-09-28T10:00:00Z",
+      "source": "Kitchen Feed"
+    }
+  ],
+  "expected": {
+    "item_count": 2,
+    "notification_status": "mocked"
+  }
+}
